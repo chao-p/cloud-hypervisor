@@ -16,6 +16,7 @@ extern crate kvm_ioctls;
 extern crate libc;
 extern crate linux_loader;
 extern crate net_util;
+extern crate vfio;
 extern crate vm_allocator;
 extern crate vm_memory;
 extern crate vm_virtio;
@@ -37,6 +38,7 @@ use std::io::{self, stdout};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Barrier, Mutex};
 use std::{result, str, thread};
+use vfio::{VfioDevice, VfioPciDevice};
 use vm_allocator::SystemAllocator;
 use vm_memory::{
     Address, Bytes, GuestAddress, GuestMemory, GuestMemoryMmap, GuestMemoryRegion, GuestUsize,
@@ -196,6 +198,10 @@ pub enum DeviceManagerError {
 
     /// Cannot add PCI device
     AddPciDevice(pci::PciRootError),
+
+    VfioCreate(vfio::VfioError),
+
+    VfioPciCreate(vfio::VfioPciError),
 }
 pub type DeviceManagerResult<T> = result::Result<T, DeviceManagerError>;
 
@@ -339,18 +345,22 @@ impl Vcpu {
         match self.fd.run() {
             Ok(run) => match run {
                 VcpuExit::IoIn(addr, data) => {
+                    //                    println!("IO R@{:x}", addr);
                     self.io_bus.read(u64::from(addr), data);
                     Ok(())
                 }
                 VcpuExit::IoOut(addr, data) => {
+                    //                  println!("IO W@{:x}", addr);
                     self.io_bus.write(u64::from(addr), data);
                     Ok(())
                 }
                 VcpuExit::MmioRead(addr, data) => {
+                    //                println!("MMIO R@{:x}", addr);
                     self.mmio_bus.read(addr as u64, data);
                     Ok(())
                 }
                 VcpuExit::MmioWrite(addr, data) => {
+                    //              println!("MMIO W@{:x}", addr);
                     self.mmio_bus.write(addr as u64, data);
                     Ok(())
                 }
@@ -438,6 +448,41 @@ impl DeviceManager {
                     Box::new(dev) as Box<vm_virtio::VirtioDevice>
                 }
             };
+
+            for vfio_device in &vm_cfg.devices {
+                println!("Adding VFIO device {:?}", vfio_device.path);
+                let vfio_device = VfioDevice::new(vfio_device.path, vm_fd, memory.clone())
+                    .map_err(DeviceManagerError::VfioCreate)?;
+
+                let mut vfio_pci_device = VfioPciDevice::new(Box::new(vfio_device))
+                    .map_err(DeviceManagerError::VfioPciCreate)?;
+
+                let bars = vfio_pci_device
+                    .allocate_bars(allocator)
+                    .map_err(DeviceManagerError::AllocateBars)?;
+
+                let irq_fd = EventFd::new(EFD_NONBLOCK).map_err(DeviceManagerError::EventFd)?;
+
+                let irq_num = allocator
+                    .allocate_irq()
+                    .ok_or(DeviceManagerError::AllocateIrq)?;
+
+                vm_fd
+                    .register_irqfd(irq_fd.as_raw_fd(), irq_num)
+                    .map_err(DeviceManagerError::Irq)?;
+
+                let irq_cb = Arc::new(
+                    Box::new(move |_p: InterruptParameters| {Ok(())}) as InterruptDelivery
+                );
+
+                vfio_pci_device.assign_pin_irq(Some(irq_fd), irq_cb, irq_num as u32, PciInterruptPin::IntA);
+
+                let vfio_pci_device = Arc::new(Mutex::new(vfio_pci_device));
+
+                pci_root
+                    .add_device(vfio_pci_device, &mut mmio_bus, bars)
+                    .map_err(DeviceManagerError::AddPciDevice)?;
+            }
 
             DeviceManager::add_virtio_pci_device(
                 block,
@@ -573,7 +618,7 @@ impl DeviceManager {
             let irq_cb = Arc::new(
                 Box::new(move |_p: InterruptParameters| irqfd.write(1)) as InterruptDelivery
             );
-            virtio_pci_device.assign_pin_irq(irq_cb, irq_num as u32, PciInterruptPin::IntA);
+            virtio_pci_device.assign_pin_irq(None, irq_cb, irq_num as u32, PciInterruptPin::IntA);
         }
 
         let virtio_pci_device = Arc::new(Mutex::new(virtio_pci_device));
@@ -894,6 +939,7 @@ impl<'a> Vm<'a> {
 
                             break 'outer;
                         }
+
                         EpollDispatch::Stdin => {
                             let mut out = [0u8; 64];
                             let count = io::stdin()

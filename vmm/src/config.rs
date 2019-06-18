@@ -49,6 +49,7 @@ pub struct VmParams<'a> {
     pub disks: Vec<&'a str>,
     pub rng: &'a str,
     pub net: Option<&'a str>,
+    pub devices: Vec<&'a str>,
 }
 
 pub struct CpusConfig(pub u8);
@@ -195,6 +196,19 @@ impl<'a> NetConfig<'a> {
     }
 }
 
+#[derive(Debug)]
+pub struct DeviceConfig<'a> {
+    pub path: &'a Path,
+}
+
+impl<'a> DeviceConfig<'a> {
+    pub fn parse(device: &'a str) -> Result<Self> {
+        Ok(DeviceConfig {
+            path: Path::new(device),
+        })
+    }
+}
+
 pub struct VmConfig<'a> {
     pub cpus: CpusConfig,
     pub memory: MemoryConfig,
@@ -203,6 +217,7 @@ pub struct VmConfig<'a> {
     pub disks: Vec<DiskConfig<'a>>,
     pub rng: RngConfig<'a>,
     pub net: Option<NetConfig<'a>>,
+    pub devices: Vec<DeviceConfig<'a>>,
 }
 
 impl<'a> VmConfig<'a> {
@@ -210,6 +225,11 @@ impl<'a> VmConfig<'a> {
         let mut disks: Vec<DiskConfig> = Vec::new();
         for disk in vm_params.disks.iter() {
             disks.push(DiskConfig::parse(disk)?);
+        }
+
+        let mut devices: Vec<DeviceConfig> = Vec::new();
+        for device in vm_params.devices.iter() {
+            devices.push(DeviceConfig::parse(device)?);
         }
 
         Ok(VmConfig {
@@ -220,6 +240,7 @@ impl<'a> VmConfig<'a> {
             disks,
             rng: RngConfig::parse(vm_params.rng)?,
             net: NetConfig::parse(vm_params.net)?,
+            devices,
         })
     }
 }

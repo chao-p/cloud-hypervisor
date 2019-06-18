@@ -63,6 +63,12 @@ fn main() {
                 .help("Path to entropy source")
                 .default_value(config::DEFAULT_RNG_SOURCE),
         )
+        .arg(
+            Arg::with_name("device")
+                .long("device")
+                .takes_value(true)
+                .help("Sysfs path to a device"),
+        )
         .get_matches();
 
     // These .unwrap()s cannot fail as there is a default value defined
@@ -80,6 +86,10 @@ fn main() {
         .expect("Missing argument: disk. Provide at least one")
         .collect();
 
+    let devices: Vec<&str> = cmd_arguments
+        .values_of("device")
+        .expect("Missing argument: disk. Provide at least one")
+        .collect();;
     let net = cmd_arguments.value_of("net");
 
     // This .unwrap() cannot fail as there is a default value defined
@@ -93,6 +103,7 @@ fn main() {
         disks,
         rng,
         net,
+        devices,
     }) {
         Ok(config) => config,
         Err(e) => {
