@@ -449,41 +449,6 @@ impl DeviceManager {
                 }
             };
 
-            for vfio_device in &vm_cfg.devices {
-                println!("Adding VFIO device {:?}", vfio_device.path);
-                let vfio_device = VfioDevice::new(vfio_device.path, vm_fd, memory.clone())
-                    .map_err(DeviceManagerError::VfioCreate)?;
-
-                let mut vfio_pci_device = VfioPciDevice::new(Box::new(vfio_device))
-                    .map_err(DeviceManagerError::VfioPciCreate)?;
-
-                let bars = vfio_pci_device
-                    .allocate_bars(allocator)
-                    .map_err(DeviceManagerError::AllocateBars)?;
-
-                let irq_fd = EventFd::new(EFD_NONBLOCK).map_err(DeviceManagerError::EventFd)?;
-
-                let irq_num = allocator
-                    .allocate_irq()
-                    .ok_or(DeviceManagerError::AllocateIrq)?;
-
-                vm_fd
-                    .register_irqfd(irq_fd.as_raw_fd(), irq_num)
-                    .map_err(DeviceManagerError::Irq)?;
-
-                let irq_cb = Arc::new(
-                    Box::new(move |_p: InterruptParameters| {Ok(())}) as InterruptDelivery
-                );
-
-                vfio_pci_device.assign_pin_irq(Some(irq_fd), irq_cb, irq_num as u32, PciInterruptPin::IntA);
-
-                let vfio_pci_device = Arc::new(Mutex::new(vfio_pci_device));
-
-                pci_root
-                    .add_device(vfio_pci_device, &mut mmio_bus, bars)
-                    .map_err(DeviceManagerError::AddPciDevice)?;
-            }
-
             DeviceManager::add_virtio_pci_device(
                 block,
                 memory.clone(),
@@ -535,6 +500,45 @@ impl DeviceManager {
                 &mut mmio_bus,
                 msi_capable,
             )?;
+        }
+
+        for vfio_device in &vm_cfg.devices {
+            println!("Adding VFIO device {:?}", vfio_device.path);
+            let vfio_device = VfioDevice::new(vfio_device.path, vm_fd, memory.clone())
+                .map_err(DeviceManagerError::VfioCreate)?;
+
+            let mut vfio_pci_device = VfioPciDevice::new(Box::new(vfio_device))
+                .map_err(DeviceManagerError::VfioPciCreate)?;
+
+            let bars = vfio_pci_device
+                .allocate_bars(allocator)
+                .map_err(DeviceManagerError::AllocateBars)?;
+
+            let irq_fd = EventFd::new(EFD_NONBLOCK).map_err(DeviceManagerError::EventFd)?;
+
+            let irq_num = allocator
+                .allocate_irq()
+                .ok_or(DeviceManagerError::AllocateIrq)?;
+
+            vm_fd
+                .register_irqfd(irq_fd.as_raw_fd(), irq_num)
+                .map_err(DeviceManagerError::Irq)?;
+
+            let irq_cb =
+                Arc::new(Box::new(move |_p: InterruptParameters| Ok(())) as InterruptDelivery);
+
+            vfio_pci_device.assign_pin_irq(
+                Some(irq_fd),
+                irq_cb,
+                irq_num as u32,
+                PciInterruptPin::IntA,
+            );
+
+            let vfio_pci_device = Arc::new(Mutex::new(vfio_pci_device));
+
+            pci_root
+                .add_device(vfio_pci_device, &mut mmio_bus, bars)
+                .map_err(DeviceManagerError::AddPciDevice)?;
         }
 
         let pci = Arc::new(Mutex::new(PciConfigIo::new(pci_root)));
