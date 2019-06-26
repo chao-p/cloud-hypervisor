@@ -88,7 +88,7 @@ fn main() {
 
     let devices: Vec<&str> = cmd_arguments
         .values_of("device")
-        .expect("Missing argument: disk. Provide at least one")
+        .expect("Missing argument: device. Provide at least one")
         .collect();;
     let net = cmd_arguments.value_of("net");
 

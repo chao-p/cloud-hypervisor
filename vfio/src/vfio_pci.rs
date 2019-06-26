@@ -392,7 +392,7 @@ impl PciDevice for VfioPciDevice {
             self.device.region_read(
                 VFIO_PCI_CONFIG_REGION_INDEX,
                 lsb_bytes.as_mut(),
-                (0x10 + bar_id * 4) as u64,
+                (PCI_CONFIG_BAR_OFFSET + bar_id * 4) as u64,
             );
 
             // We've just read the BAR size back. Or at least its LSB.
@@ -438,12 +438,12 @@ impl PciDevice for VfioPciDevice {
                     self.device.region_write(
                         VFIO_PCI_CONFIG_REGION_INDEX,
                         msb_bytes.as_mut(),
-                        (0x10 + msb_bar_id * 4) as u64,
+                        (PCI_CONFIG_BAR_OFFSET + msb_bar_id * 4) as u64,
                     );
                     self.device.region_read(
                         VFIO_PCI_CONFIG_REGION_INDEX,
                         msb_bytes.as_mut(),
-                        (0x10 + msb_bar_id * 4) as u64,
+                        (PCI_CONFIG_BAR_OFFSET + msb_bar_id * 4) as u64,
                     );
                 }
 
@@ -497,7 +497,7 @@ impl PciDevice for VfioPciDevice {
             self.device.region_write(
                 VFIO_PCI_CONFIG_REGION_INDEX,
                 lsb_bytes.as_mut(),
-                (0x10 + bar_id * 4) as u64,
+                (PCI_CONFIG_BAR_OFFSET + bar_id * 4) as u64,
             );
 
             if is_64bit_bar {
@@ -506,7 +506,7 @@ impl PciDevice for VfioPciDevice {
                 self.device.region_write(
                     VFIO_PCI_CONFIG_REGION_INDEX,
                     msb_bytes.as_mut(),
-                    (0x10 + (bar_id + 1) * 4) as u64,
+                    (PCI_CONFIG_BAR_OFFSET + (bar_id + 1) * 4) as u64,
                 );
             }
 
